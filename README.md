@@ -68,13 +68,40 @@ bun preview
 
 ```
 /
+├── public/              # Static assets
+│   └── favicon.svg
 ├── src/
-│   ├── components/      # Astro and React components
-│   ├── layouts/         # Page layouts
-│   ├── pages/           # Route pages
-│   ├── lib/             # Utilities
-│   └── styles/          # Global styles
-└── public/              # Static assets
+│   ├── assets/         # Static assets (SVG images)
+│   │   ├── astro.svg
+│   │   └── background.svg
+│   ├── components/     # Astro and React components
+│   │   ├── ui/         # shadcn/ui React components
+│   │   │   ├── badge.tsx
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── scroll-area.tsx
+│   │   │   └── switch.tsx
+│   │   ├── EventListenersSection.astro
+│   │   ├── EventLog.astro
+│   │   ├── NewConnectionForm.astro
+│   │   ├── RoomsSection.astro
+│   │   ├── SendEventSection.astro
+│   │   ├── ThemeToggle.astro
+│   │   └── Welcome.astro
+│   ├── layouts/        # Page layouts
+│   │   └── Layout.astro
+│   ├── lib/            # Utilities
+│   │   └── utils.ts
+│   ├── pages/          # Route pages
+│   │   └── index.astro
+│   └── styles/         # Global styles
+│       └── global.css
+├── astro.config.mjs    # Astro configuration
+├── components.json     # shadcn/ui configuration
+├── tsconfig.json       # TypeScript configuration
+├── package.json        # Dependencies and scripts
+└── bun.lock            # Bun lockfile
 ```
 
 ## Contributing

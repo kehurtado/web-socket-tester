@@ -1,11 +1,538 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
-
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
 <Layout>
-	<Welcome />
+	<div class="min-h-screen bg-gray-900 text-gray-100 p-4">
+		<div class="max-w-7xl mx-auto">
+			<h1 class="text-3xl font-bold mb-6">Socket.IO Client Tester</h1>
+
+			<!-- New Connection Form -->
+			<div class="bg-gray-800 rounded-lg p-4 mb-6">
+				<h2 class="text-xl font-semibold mb-4">Nueva Conexión</h2>
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+					<input
+						type="text"
+						id="serverUrl"
+						placeholder="URL del servidor (ej: http://localhost:3000)"
+						value="http://localhost:3000"
+						class="px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+					/>
+					<input
+						type="text"
+						id="namespace"
+						placeholder="Namespace (ej: /chat o dejar vacío para /)"
+						value="/"
+						class="px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+					/>
+					<button
+						id="connectBtn"
+						class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-semibold transition-colors"
+					>
+						Conectar
+					</button>
+				</div>
+			</div>
+
+			<!-- Connections Tabs -->
+			<div id="connectionsContainer" class="space-y-4">
+				<!-- Connections will be added here dynamically -->
+			</div>
+		</div>
+	</div>
 </Layout>
+
+<script>
+	import { io } from 'socket.io-client';
+
+	interface ConnectionState {
+		id: string;
+		socket: ReturnType<typeof io> | null;
+		url: string;
+		namespace: string;
+		connected: boolean;
+		rooms: string[];
+		eventListeners: Set<string>;
+		eventLog: Array<{ timestamp: string; type: 'sent' | 'received' | 'system'; event: string; data: unknown }>;
+	}
+
+	class SocketManager {
+		private connections: Map<string, ConnectionState> = new Map();
+		private connectionCounter = 0;
+
+		createConnection(url: string, namespace: string): string {
+			const id = `conn-${++this.connectionCounter}`;
+			const namespacePath = namespace.trim() || '/';
+			const fullUrl = `${url}${namespacePath}`;
+
+			const state: ConnectionState = {
+				id,
+				socket: null,
+				url,
+				namespace: namespacePath,
+				connected: false,
+				rooms: [],
+				eventListeners: new Set(),
+				eventLog: [],
+			};
+
+			this.connections.set(id, state);
+			this.renderConnection(state);
+			return id;
+		}
+
+		connect(id: string): void {
+			const state = this.connections.get(id);
+			if (!state || state.connected) return;
+
+			try {
+				const socket = io(state.url + state.namespace, {
+					transports: ['websocket', 'polling'],
+				});
+
+				socket.on('connect', () => {
+					state.connected = true;
+					state.socket = socket;
+					this.addLog(id, 'system', 'connected', {});
+					this.updateConnectionUI(state);
+				});
+
+				socket.on('disconnect', () => {
+					state.connected = false;
+					this.addLog(id, 'system', 'disconnected', {});
+					this.updateConnectionUI(state);
+				});
+
+				socket.on('connect_error', (error: Error) => {
+					this.addLog(id, 'system', 'connect_error', { error: error.message });
+					this.updateConnectionUI(state);
+				});
+
+				// Listen for all registered events
+				state.eventListeners.forEach((eventName) => {
+					socket.on(eventName, (data: unknown) => {
+						this.addLog(id, 'received', eventName, data);
+					});
+				});
+
+				state.socket = socket;
+			} catch (error) {
+				this.addLog(id, 'system', 'error', { error: (error as Error).message });
+			}
+		}
+
+		disconnect(id: string): void {
+			const state = this.connections.get(id);
+			if (!state || !state.socket) return;
+
+			state.socket.disconnect();
+			state.socket = null;
+			state.connected = false;
+			state.rooms = [];
+			this.updateConnectionUI(state);
+		}
+
+		removeConnection(id: string): void {
+			this.disconnect(id);
+			this.connections.delete(id);
+			const element = document.getElementById(`connection-${id}`);
+			if (element) element.remove();
+		}
+
+		joinRoom(id: string, room: string): void {
+			const state = this.connections.get(id);
+			if (!state || !state.socket || !state.connected) return;
+
+			if (state.rooms.includes(room)) return;
+
+			state.socket.emit('join', room);
+			state.rooms.push(room);
+			this.addLog(id, 'sent', 'join', { room });
+			this.updateConnectionUI(state);
+		}
+
+		leaveRoom(id: string, room: string): void {
+			const state = this.connections.get(id);
+			if (!state || !state.socket || !state.connected) return;
+
+			state.socket.emit('leave', room);
+			state.rooms = state.rooms.filter((r) => r !== room);
+			this.addLog(id, 'sent', 'leave', { room });
+			this.updateConnectionUI(state);
+		}
+
+		addEventListener(id: string, eventName: string): void {
+			const state = this.connections.get(id);
+			if (!state) return;
+
+			if (state.eventListeners.has(eventName)) return;
+
+			state.eventListeners.add(eventName);
+			if (state.socket && state.connected) {
+				state.socket.on(eventName, (data: unknown) => {
+					this.addLog(id, 'received', eventName, data);
+				});
+			}
+			this.updateConnectionUI(state);
+		}
+
+		removeEventListener(id: string, eventName: string): void {
+			const state = this.connections.get(id);
+			if (!state) return;
+
+			state.eventListeners.delete(eventName);
+			if (state.socket && state.connected) {
+				state.socket.off(eventName);
+			}
+			this.updateConnectionUI(state);
+		}
+
+		sendEvent(id: string, eventName: string, data: unknown): void {
+			const state = this.connections.get(id);
+			if (!state || !state.socket || !state.connected) return;
+
+			state.socket.emit(eventName, data);
+			this.addLog(id, 'sent', eventName, data);
+		}
+
+		private addLog(id: string, type: 'sent' | 'received' | 'system', event: string, data: unknown): void {
+			const state = this.connections.get(id);
+			if (!state) return;
+
+			const timestamp = new Date().toLocaleTimeString();
+			state.eventLog.push({ timestamp, type, event, data });
+
+			// Keep only last 100 logs
+			if (state.eventLog.length > 100) {
+				state.eventLog.shift();
+			}
+
+			this.updateLogUI(state);
+		}
+
+		private renderConnection(state: ConnectionState): void {
+			const container = document.getElementById('connectionsContainer');
+			if (!container) return;
+
+			const connectionDiv = document.createElement('div');
+			connectionDiv.id = `connection-${state.id}`;
+			connectionDiv.className = 'bg-gray-800 rounded-lg p-4 border border-gray-700';
+			connectionDiv.innerHTML = this.getConnectionHTML(state);
+			container.appendChild(connectionDiv);
+
+			this.attachEventListeners(state);
+		}
+
+		private getConnectionHTML(state: ConnectionState): string {
+			const statusColor = state.connected ? 'bg-green-500' : 'bg-red-500';
+			const statusText = state.connected ? 'Conectado' : 'Desconectado';
+
+			return `
+				<div class="mb-4">
+					<div class="flex items-center justify-between mb-4">
+						<div class="flex items-center gap-3">
+							<div class="w-3 h-3 rounded-full ${statusColor}"></div>
+							<h3 class="text-xl font-semibold">${state.url}${state.namespace}</h3>
+							<span class="text-sm text-gray-400">${statusText}</span>
+						</div>
+						<div class="flex gap-2">
+							${state.connected ? `
+								<button class="disconnect-btn px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm" data-id="${state.id}">
+									Desconectar
+								</button>
+							` : `
+								<button class="connect-btn px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm" data-id="${state.id}">
+									Conectar
+								</button>
+							`}
+							<button class="remove-btn px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-sm" data-id="${state.id}">
+								Eliminar
+							</button>
+						</div>
+					</div>
+
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+						<!-- Left Column: Rooms & Event Listeners -->
+						<div class="space-y-4">
+							<!-- Rooms Section -->
+							<div class="bg-gray-700 rounded p-3">
+								<h4 class="font-semibold mb-2">Salas</h4>
+								<div class="flex gap-2 mb-2">
+									<input
+										type="text"
+										class="room-input flex-1 px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm"
+										placeholder="Nombre de sala"
+										data-id="${state.id}"
+									/>
+									<button class="join-room-btn px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm" data-id="${state.id}">
+										Unirse
+									</button>
+								</div>
+								<div class="rooms-list" data-id="${state.id}">
+									${state.rooms.length === 0 ? '<p class="text-sm text-gray-400">No hay salas unidas</p>' : ''}
+									${state.rooms.map((room) => `
+										<div class="flex items-center justify-between bg-gray-600 rounded p-2 mb-1">
+											<span class="text-sm">${room}</span>
+											<button class="leave-room-btn px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs" data-id="${state.id}" data-room="${room}">
+												Salir
+											</button>
+										</div>
+									`).join('')}
+								</div>
+							</div>
+
+							<!-- Event Listeners Section -->
+							<div class="bg-gray-700 rounded p-3">
+								<h4 class="font-semibold mb-2">Escuchar Eventos</h4>
+								<div class="flex gap-2 mb-2">
+									<input
+										type="text"
+										class="listener-input flex-1 px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm"
+										placeholder="Nombre del evento"
+										data-id="${state.id}"
+									/>
+									<button class="add-listener-btn px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm" data-id="${state.id}">
+										Agregar
+									</button>
+								</div>
+								<div class="listeners-list" data-id="${state.id}">
+									${state.eventListeners.size === 0 ? '<p class="text-sm text-gray-400">No hay listeners activos</p>' : ''}
+									${Array.from(state.eventListeners).map((eventName) => `
+										<div class="flex items-center justify-between bg-gray-600 rounded p-2 mb-1">
+											<span class="text-sm font-mono">${eventName}</span>
+											<button class="remove-listener-btn px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs" data-id="${state.id}" data-event="${eventName}">
+												Quitar
+											</button>
+										</div>
+									`).join('')}
+								</div>
+							</div>
+
+							<!-- Send Event Section -->
+							<div class="bg-gray-700 rounded p-3">
+								<h4 class="font-semibold mb-2">Enviar Evento</h4>
+								<input
+									type="text"
+									class="event-name-input w-full px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm mb-2"
+									placeholder="Nombre del evento"
+									data-id="${state.id}"
+								/>
+								<textarea
+									class="event-data-input w-full px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm font-mono text-xs"
+									rows="4"
+									placeholder='Datos JSON (ej: {"message": "Hello"})'
+									data-id="${state.id}"
+								></textarea>
+								<button class="send-event-btn w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm" data-id="${state.id}">
+									Enviar
+								</button>
+							</div>
+						</div>
+
+						<!-- Right Column: Event Log -->
+						<div class="bg-gray-700 rounded p-3">
+							<div class="flex items-center justify-between mb-2">
+								<h4 class="font-semibold">Log de Eventos</h4>
+								<button class="clear-log-btn px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs" data-id="${state.id}">
+									Limpiar
+								</button>
+							</div>
+							<div class="event-log bg-gray-900 rounded p-2 h-96 overflow-y-auto font-mono text-xs" data-id="${state.id}">
+								${state.eventLog.length === 0 ? '<p class="text-gray-500">No hay eventos aún</p>' : ''}
+								${state.eventLog.map((log) => {
+									const typeColor = log.type === 'sent' ? 'text-blue-400' : log.type === 'received' ? 'text-green-400' : 'text-yellow-400';
+									return `
+										<div class="mb-2 border-l-2 ${log.type === 'sent' ? 'border-blue-500' : log.type === 'received' ? 'border-green-500' : 'border-yellow-500'} pl-2">
+											<div class="flex items-center gap-2 mb-1">
+												<span class="text-gray-500">${log.timestamp}</span>
+												<span class="${typeColor} font-semibold">[${log.type.toUpperCase()}]</span>
+												<span class="text-gray-300">${log.event}</span>
+											</div>
+											<pre class="text-gray-400 whitespace-pre-wrap break-words">${JSON.stringify(log.data, null, 2)}</pre>
+										</div>
+									`;
+								}).join('')}
+							</div>
+						</div>
+					</div>
+				</div>
+			`;
+		}
+
+		private updateConnectionUI(state: ConnectionState): void {
+			const element = document.getElementById(`connection-${state.id}`);
+			if (!element) return;
+
+			element.innerHTML = this.getConnectionHTML(state);
+			this.attachEventListeners(state);
+		}
+
+		private updateLogUI(state: ConnectionState): void {
+			const logElement = document.querySelector(`.event-log[data-id="${state.id}"]`);
+			if (!logElement) return;
+
+			const lastLog = state.eventLog[state.eventLog.length - 1];
+			if (!lastLog) return;
+
+			const typeColor = lastLog.type === 'sent' ? 'text-blue-400' : lastLog.type === 'received' ? 'text-green-400' : 'text-yellow-400';
+			const borderColor = lastLog.type === 'sent' ? 'border-blue-500' : lastLog.type === 'received' ? 'border-green-500' : 'border-yellow-500';
+
+			const logEntry = document.createElement('div');
+			logEntry.className = `mb-2 border-l-2 ${borderColor} pl-2`;
+			logEntry.innerHTML = `
+				<div class="flex items-center gap-2 mb-1">
+					<span class="text-gray-500">${lastLog.timestamp}</span>
+					<span class="${typeColor} font-semibold">[${lastLog.type.toUpperCase()}]</span>
+					<span class="text-gray-300">${lastLog.event}</span>
+				</div>
+				<pre class="text-gray-400 whitespace-pre-wrap break-words">${JSON.stringify(lastLog.data, null, 2)}</pre>
+			`;
+
+			logElement.appendChild(logEntry);
+
+			// Auto-scroll to bottom
+			logElement.scrollTop = logElement.scrollHeight;
+
+			// Keep only last 100 visible
+			const children = logElement.children;
+			if (children.length > 100) {
+				logElement.removeChild(children[0]);
+			}
+		}
+
+		private attachEventListeners(state: ConnectionState): void {
+			const id = state.id;
+
+			// Connect/Disconnect
+			document.querySelector(`.connect-btn[data-id="${id}"]`)?.addEventListener('click', () => {
+				this.connect(id);
+			});
+			document.querySelector(`.disconnect-btn[data-id="${id}"]`)?.addEventListener('click', () => {
+				this.disconnect(id);
+			});
+
+			// Remove connection
+			document.querySelector(`.remove-btn[data-id="${id}"]`)?.addEventListener('click', () => {
+				this.removeConnection(id);
+			});
+
+			// Join room
+			const joinRoomBtn = document.querySelector(`.join-room-btn[data-id="${id}"]`);
+			const roomInput = document.querySelector(`.room-input[data-id="${id}"]`) as HTMLInputElement;
+			joinRoomBtn?.addEventListener('click', () => {
+				const room = roomInput?.value.trim();
+				if (room) {
+					this.joinRoom(id, room);
+					if (roomInput) roomInput.value = '';
+				}
+			});
+			roomInput?.addEventListener('keypress', (e) => {
+				if (e.key === 'Enter') {
+					const room = roomInput.value.trim();
+					if (room) {
+						this.joinRoom(id, room);
+						roomInput.value = '';
+					}
+				}
+			});
+
+			// Leave room
+			document.querySelectorAll(`.leave-room-btn[data-id="${id}"]`).forEach((btn) => {
+				btn.addEventListener('click', (e) => {
+					const room = (e.target as HTMLElement).getAttribute('data-room');
+					if (room) this.leaveRoom(id, room);
+				});
+			});
+
+			// Add event listener
+			const addListenerBtn = document.querySelector(`.add-listener-btn[data-id="${id}"]`);
+			const listenerInput = document.querySelector(`.listener-input[data-id="${id}"]`) as HTMLInputElement;
+			addListenerBtn?.addEventListener('click', () => {
+				const eventName = listenerInput?.value.trim();
+				if (eventName) {
+					this.addEventListener(id, eventName);
+					if (listenerInput) listenerInput.value = '';
+				}
+			});
+			listenerInput?.addEventListener('keypress', (e) => {
+				if (e.key === 'Enter') {
+					const eventName = listenerInput.value.trim();
+					if (eventName) {
+						this.addEventListener(id, eventName);
+						listenerInput.value = '';
+					}
+				}
+			});
+
+			// Remove event listener
+			document.querySelectorAll(`.remove-listener-btn[data-id="${id}"]`).forEach((btn) => {
+				btn.addEventListener('click', (e) => {
+					const eventName = (e.target as HTMLElement).getAttribute('data-event');
+					if (eventName) this.removeEventListener(id, eventName);
+				});
+			});
+
+			// Send event
+			const sendEventBtn = document.querySelector(`.send-event-btn[data-id="${id}"]`);
+			const eventNameInput = document.querySelector(`.event-name-input[data-id="${id}"]`) as HTMLInputElement;
+			const eventDataInput = document.querySelector(`.event-data-input[data-id="${id}"]`) as HTMLTextAreaElement;
+			sendEventBtn?.addEventListener('click', () => {
+				const eventName = eventNameInput?.value.trim();
+				if (!eventName) return;
+
+				let data: unknown = {};
+				if (eventDataInput?.value.trim()) {
+					try {
+						data = JSON.parse(eventDataInput.value);
+					} catch (error) {
+						alert('Error: JSON inválido');
+						return;
+					}
+				}
+
+				this.sendEvent(id, eventName, data);
+				if (eventNameInput) eventNameInput.value = '';
+				if (eventDataInput) eventDataInput.value = '';
+			});
+
+			// Clear log
+			document.querySelector(`.clear-log-btn[data-id="${id}"]`)?.addEventListener('click', () => {
+				state.eventLog = [];
+				const logElement = document.querySelector(`.event-log[data-id="${id}"]`);
+				if (logElement) logElement.innerHTML = '<p class="text-gray-500">No hay eventos aún</p>';
+			});
+		}
+	}
+
+	// Initialize manager
+	const manager = new SocketManager();
+
+	// Connect button handler
+	document.getElementById('connectBtn')?.addEventListener('click', () => {
+		const urlInput = document.getElementById('serverUrl') as HTMLInputElement;
+		const namespaceInput = document.getElementById('namespace') as HTMLInputElement;
+
+		const url = urlInput?.value.trim();
+		const namespace = namespaceInput?.value.trim() || '/';
+
+		if (!url) {
+			alert('Por favor ingresa una URL');
+			return;
+		}
+
+		const id = manager.createConnection(url, namespace);
+		manager.connect(id);
+	});
+
+	// Allow Enter key to connect
+	document.getElementById('serverUrl')?.addEventListener('keypress', (e) => {
+		if (e.key === 'Enter') {
+			document.getElementById('connectBtn')?.click();
+		}
+	});
+	document.getElementById('namespace')?.addEventListener('keypress', (e) => {
+		if (e.key === 'Enter') {
+			document.getElementById('connectBtn')?.click();
+		}
+	});
+</script>

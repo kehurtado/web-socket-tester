@@ -1,6 +1,7 @@
 ---
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 ---
 
 <Card client:load>
@@ -8,25 +9,167 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 		<CardTitle>New Connection</CardTitle>
 	</CardHeader>
 	<CardContent>
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-			<input
-				type="text"
-				id="serverUrl"
-				placeholder="Server URL (eg: http://localhost:3000)"
-				value="http://localhost:3000"
-				class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-			/>
-			<input
-				type="text"
-				id="namespace"
-				placeholder="Namespace (eg: /chat or leave empty for /)"
-				value="/"
-				class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-			/>
-			<Button client:load id="connectBtn" class="w-full">
-				Connect
-			</Button>
+		<div class="space-y-4">
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+				<Input
+					client:load
+					type="text"
+					id="serverUrl"
+					placeholder="Server URL (eg: http://localhost:3000)"
+					defaultValue="http://localhost:3000"
+				/>
+				<Input
+					client:load
+					type="text"
+					id="namespace"
+					placeholder="Namespace (eg: /chat or leave empty for /)"
+					defaultValue="/"
+				/>
+				<Button client:load id="connectBtn" class="w-full">
+					Connect
+				</Button>
+			</div>
+			
+			<!-- Query Parameters Section -->
+			<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-4">
+				<h4 class="text-sm font-semibold mb-3">Query Parameters</h4>
+				<div class="space-y-2">
+					<div class="flex gap-2">
+						<Input
+							client:load
+							type="text"
+							id="queryParamKey"
+							placeholder="Key (eg: token)"
+							class="flex-1"
+						/>
+						<Input
+							client:load
+							type="text"
+							id="queryParamValue"
+							placeholder="Value"
+							class="flex-1"
+						/>
+						<Button client:load id="addQueryParamBtn" class="h-10 px-4">
+							Add
+						</Button>
+					</div>
+					<div id="queryParamsList" class="space-y-2">
+						<!-- Query parameters will be added here dynamically -->
+					</div>
+				</div>
+			</div>
 		</div>
 	</CardContent>
 </Card>
+
+<script>
+	import { toast } from 'sonner';
+	
+	// Manage query parameters
+	const queryParams: Record<string, string> = {};
+	
+	function showToast(title: string, description: string, variant: 'default' | 'destructive' = 'destructive') {
+		if (variant === 'destructive') {
+			toast.error(title, { description });
+		} else {
+			toast(title, { description });
+		}
+	}
+	
+	function addQueryParam() {
+		const keyInput = document.getElementById('queryParamKey') as HTMLInputElement;
+		const valueInput = document.getElementById('queryParamValue') as HTMLInputElement;
+		
+		if (!keyInput || !valueInput) {
+			showToast('Error', 'Form inputs not found');
+			return;
+		}
+		
+		const key = keyInput.value.trim();
+		const value = valueInput.value.trim();
+		
+		if (!key) {
+			showToast('Error', 'Please enter a key');
+			keyInput.focus();
+			return;
+		}
+		
+		// Check if key already exists
+		if (queryParams.hasOwnProperty(key)) {
+			showToast('Warning', `Key "${key}" already exists. It will be updated.`, 'default');
+		}
+		
+		queryParams[key] = value || '';
+		
+		// Clear inputs
+		keyInput.value = '';
+		valueInput.value = '';
+		
+		updateQueryParamsList();
+		keyInput.focus();
+	}
+	
+	function removeQueryParam(key: string) {
+		delete queryParams[key];
+		updateQueryParamsList();
+	}
+	
+	function updateQueryParamsList() {
+		const listContainer = document.getElementById('queryParamsList');
+		if (!listContainer) return;
+		
+		const keys = Object.keys(queryParams);
+		
+		if (keys.length === 0) {
+			listContainer.innerHTML = '<p class="text-sm text-muted-foreground">No query parameters added</p>';
+			return;
+		}
+		
+		listContainer.innerHTML = keys.map((key) => `
+			<div class="flex items-center justify-between bg-muted rounded-md p-2">
+				<div class="flex items-center gap-2">
+					<code class="text-sm font-mono">${key}</code>
+					${queryParams[key] ? `<span class="text-sm text-muted-foreground">${queryParams[key]}</span>` : ''}
+				</div>
+				<button 
+					class="remove-query-param-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-8 rounded-md px-2 text-xs" 
+					data-key="${key}"
+				>
+					Remove
+				</button>
+			</div>
+		`).join('');
+		
+		// Attach remove handlers
+		document.querySelectorAll('.remove-query-param-btn').forEach((btn) => {
+			btn.addEventListener('click', (e) => {
+				const key = (e.target as HTMLElement).getAttribute('data-key');
+				if (key) removeQueryParam(key);
+			});
+		});
+	}
+	
+	// Add button handler
+	document.getElementById('addQueryParamBtn')?.addEventListener('click', addQueryParam);
+	
+	// Enter key handlers
+	document.getElementById('queryParamKey')?.addEventListener('keypress', (e) => {
+		if (e.key === 'Enter') {
+			const valueInput = document.getElementById('queryParamValue') as HTMLInputElement;
+			valueInput?.focus();
+		}
+	});
+	
+	document.getElementById('queryParamValue')?.addEventListener('keypress', (e) => {
+		if (e.key === 'Enter') {
+			addQueryParam();
+		}
+	});
+	
+	// Initialize list
+	updateQueryParamsList();
+	
+	// Expose queryParams to global scope so it can be accessed by the connection handler
+	(window as Window & { getQueryParams?: () => Record<string, string> }).getQueryParams = () => ({ ...queryParams });
+</script>
 

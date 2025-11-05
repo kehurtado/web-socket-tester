@@ -1,46 +1,86 @@
-# Astro Starter Kit: Basics
+# Socket.IO Client Tester
 
-```sh
-bun create astro@latest -- --template basics
+A web-based Socket.IO client testing tool built with Astro. Create multiple WebSocket connections, test rooms, listen to events, send messages, and view real-time event logs.
+
+## Features
+
+- 🔌 **Multiple Connections**: Create and manage multiple Socket.IO connections simultaneously
+- 🏠 **Room Management**: Join and leave rooms for each connection
+- 📡 **Event Listeners**: Listen to specific events and view incoming messages
+- 📤 **Send Events**: Send custom events with JSON payloads using CodeMirror editor
+- 📋 **Event Log**: Real-time log of all sent, received, and system events
+- 🌓 **Dark Mode**: Toggle between light and dark themes
+- 🎨 **Modern UI**: Built with Tailwind CSS and shadcn/ui components
+
+## Tech Stack
+
+- [Astro](https://astro.build) - Web framework
+- [Socket.IO Client](https://socket.io/docs/v4/client-api/) - WebSocket client
+- [CodeMirror](https://codemirror.net) - JSON editor
+- [React](https://react.dev) - UI components
+- [Tailwind CSS](https://tailwindcss.com) - Styling
+- [shadcn/ui](https://ui.shadcn.com) - UI components
+
+## Getting Started
+
+### Prerequisites
+
+- [Bun](https://bun.sh) (or npm/pnpm)
+
+### Installation
+
+```bash
+bun install
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+### Development
 
-## 🚀 Project Structure
+```bash
+bun dev
+```
 
-Inside of your Astro project, you'll see the following folders and files:
+Open [http://localhost:4321](http://localhost:4321) to see the app.
 
-```text
+### Build
+
+```bash
+bun build
+```
+
+### Preview
+
+```bash
+bun preview
+```
+
+## Usage
+
+1. Enter a Socket.IO server URL (e.g., `http://localhost:3000`)
+2. Optionally specify a namespace (defaults to `/`)
+3. Click "Connect" to create and connect to a new connection
+4. Use the interface to:
+   - Join/leave rooms
+   - Add event listeners
+   - Send custom events with JSON data
+   - View real-time event logs
+
+## Project Structure
+
+```
 /
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+├── src/
+│   ├── components/      # Astro and React components
+│   ├── layouts/         # Page layouts
+│   ├── pages/           # Route pages
+│   ├── lib/             # Utilities
+│   └── styles/          # Global styles
+└── public/              # Static assets
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+## Contributing
 
-## 🧞 Commands
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
-All commands are run from the root of the project, from a terminal:
+## License
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `bun install`             | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+This project is open source and available under the [MIT License](LICENSE).

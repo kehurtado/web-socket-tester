@@ -29,12 +29,14 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 	import { EditorView, ViewUpdate } from '@codemirror/view';
 	import { EditorState } from '@codemirror/state';
 	import { json } from '@codemirror/lang-json';
+	import { toast } from 'sonner';
 
 	interface ConnectionState {
 		id: string;
 		socket: ReturnType<typeof io> | null;
 		url: string;
 		namespace: string;
+		queryParams: Record<string, string>;
 		connected: boolean;
 		rooms: string[];
 		eventListeners: Set<string>;
@@ -46,7 +48,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 		private connections: Map<string, ConnectionState> = new Map();
 		private connectionCounter = 0;
 
-		createConnection(url: string, namespace: string): string {
+		createConnection(url: string, namespace: string, queryParams: Record<string, string> = {}): string {
 			const id = `conn-${++this.connectionCounter}`;
 			const namespacePath = namespace.trim() || '/';
 			const fullUrl = `${url}${namespacePath}`;
@@ -56,6 +58,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				socket: null,
 				url,
 				namespace: namespacePath,
+				queryParams,
 				connected: false,
 				rooms: [],
 				eventListeners: new Set(),
@@ -73,9 +76,18 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			if (!state || state.connected) return;
 
 			try {
-				const socket = io(state.url + state.namespace, {
+				const socketOptions: {
+					transports: string[];
+					query?: Record<string, string>;
+				} = {
 					transports: ['websocket', 'polling'],
-				});
+				};
+
+				if (Object.keys(state.queryParams).length > 0) {
+					socketOptions.query = state.queryParams;
+				}
+
+				const socket = io(state.url + state.namespace, socketOptions);
 
 				socket.on('connect', () => {
 					state.connected = true;
@@ -596,7 +608,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 					try {
 						data = JSON.parse(editorContent);
 					} catch (error) {
-						alert('Error: Invalid JSON');
+						showToast('Error', 'Invalid JSON');
 						return;
 					}
 				}
@@ -623,6 +635,14 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 	// Initialize manager
 	const manager = new SocketManager();
 
+	function showToast(title: string, description: string, variant: 'default' | 'destructive' = 'destructive') {
+		if (variant === 'destructive') {
+			toast.error(title, { description });
+		} else {
+			toast(title, { description });
+		}
+	}
+
 	// Connect button handler
 	document.getElementById('connectBtn')?.addEventListener('click', () => {
 		const urlInput = document.getElementById('serverUrl') as HTMLInputElement;
@@ -632,11 +652,18 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 		const namespace = namespaceInput?.value.trim() || '/';
 
 		if (!url) {
-			alert('Please enter a URL');
+			showToast('Error', 'Please enter a URL');
 			return;
 		}
 
-		const id = manager.createConnection(url, namespace);
+		// Read query parameters from the form
+		const queryParams: Record<string, string> = {};
+		const getQueryParams = (window as { getQueryParams?: () => Record<string, string> }).getQueryParams;
+		if (getQueryParams) {
+			Object.assign(queryParams, getQueryParams());
+		}
+
+		const id = manager.createConnection(url, namespace, queryParams);
 		manager.connect(id);
 	});
 

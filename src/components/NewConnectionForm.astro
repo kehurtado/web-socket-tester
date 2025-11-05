@@ -1,0 +1,32 @@
+---
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+---
+
+<Card client:load>
+	<CardHeader>
+		<CardTitle>New Connection</CardTitle>
+	</CardHeader>
+	<CardContent>
+		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+			<input
+				type="text"
+				id="serverUrl"
+				placeholder="Server URL (eg: http://localhost:3000)"
+				value="http://localhost:3000"
+				class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+			/>
+			<input
+				type="text"
+				id="namespace"
+				placeholder="Namespace (eg: /chat or leave empty for /)"
+				value="/"
+				class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+			/>
+			<Button client:load id="connectBtn" class="w-full">
+				Connect
+			</Button>
+		</div>
+	</CardContent>
+</Card>
+

@@ -1,40 +1,22 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import NewConnectionForm from '../components/NewConnectionForm.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
 ---
 
 <Layout>
-	<div class="min-h-screen bg-gray-900 text-gray-100 p-4">
+	<div class="min-h-screen bg-background text-foreground p-4">
 		<div class="max-w-7xl mx-auto">
-			<h1 class="text-3xl font-bold mb-6">Socket.IO Client Tester</h1>
-
-			<!-- New Connection Form -->
-			<div class="bg-gray-800 rounded-lg p-4 mb-6">
-				<h2 class="text-xl font-semibold mb-4">Nueva Conexión</h2>
-				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-					<input
-						type="text"
-						id="serverUrl"
-						placeholder="URL del servidor (ej: http://localhost:3000)"
-						value="http://localhost:3000"
-						class="px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-					/>
-					<input
-						type="text"
-						id="namespace"
-						placeholder="Namespace (ej: /chat o dejar vacío para /)"
-						value="/"
-						class="px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
-					/>
-					<button
-						id="connectBtn"
-						class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-semibold transition-colors"
-					>
-						Conectar
-					</button>
-				</div>
+			<div class="flex items-center justify-between mb-6">
+				<h1 class="text-3xl font-bold">Socket.IO Client Tester</h1>
+				<ThemeToggle />
 			</div>
 
-			<!-- Connections Tabs -->
+			<div class="mb-6">
+				<NewConnectionForm />
+			</div>
+
+			<!-- Connections Container -->
 			<div id="connectionsContainer" class="space-y-4">
 				<!-- Connections will be added here dynamically -->
 			</div>
@@ -44,6 +26,9 @@ import Layout from '../layouts/Layout.astro';
 
 <script>
 	import { io } from 'socket.io-client';
+	import { EditorView, ViewUpdate } from '@codemirror/view';
+	import { EditorState } from '@codemirror/state';
+	import { json } from '@codemirror/lang-json';
 
 	interface ConnectionState {
 		id: string;
@@ -54,6 +39,7 @@ import Layout from '../layouts/Layout.astro';
 		rooms: string[];
 		eventListeners: Set<string>;
 		eventLog: Array<{ timestamp: string; type: 'sent' | 'received' | 'system'; event: string; data: unknown }>;
+		editor: EditorView | null;
 	}
 
 	class SocketManager {
@@ -74,6 +60,7 @@ import Layout from '../layouts/Layout.astro';
 				rooms: [],
 				eventListeners: new Set(),
 				eventLog: [],
+				editor: null,
 			};
 
 			this.connections.set(id, state);
@@ -133,6 +120,10 @@ import Layout from '../layouts/Layout.astro';
 		}
 
 		removeConnection(id: string): void {
+			const state = this.connections.get(id);
+			if (state) {
+				this.destroyEditor(state);
+			}
 			this.disconnect(id);
 			this.connections.delete(id);
 			const element = document.getElementById(`connection-${id}`);
@@ -210,13 +201,126 @@ import Layout from '../layouts/Layout.astro';
 			this.updateLogUI(state);
 		}
 
+		private initializeEditor(state: ConnectionState): void {
+			const editorContainer = document.querySelector(`.event-data-editor[data-id="${state.id}"]`) as HTMLElement;
+			if (!editorContainer || state.editor) return;
+
+			const isDark = document.documentElement.classList.contains('dark');
+			const darkTheme = EditorView.theme({
+				'&': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 17.5%)' : '#ffffff',
+					color: isDark ? 'hsl(210, 40%, 98%)' : '#222222',
+					height: '100%',
+					borderRadius: '0.375rem',
+				},
+				'.cm-content': {
+					padding: '12px',
+					minHeight: '100px',
+					fontSize: '14px',
+					fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+					caretColor: isDark ? 'hsl(217.2, 91%, 60%)' : 'hsl(217.2, 91%, 60%)',
+				},
+				'.cm-focused': {
+					outline: 'none',
+				},
+				'.cm-gutters': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 20%)' : '#f8f9fa',
+					border: 'none',
+				},
+				'.cm-lineNumbers .cm-gutterElement': {
+					color: isDark ? 'hsl(215, 20.2%, 65.1%)' : '#6b7280',
+					padding: '0 8px',
+				},
+				'.cm-cursor': {
+					borderLeftColor: isDark ? 'hsl(217.2, 91%, 60%)' : 'hsl(217.2, 91%, 60%)',
+				},
+				'.cm-selectionBackground': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 25.5%)' : '#e5e7eb',
+				},
+			});
+
+			const startState = EditorState.create({
+				doc: '',
+				extensions: [
+					json(),
+					darkTheme,
+					EditorView.lineWrapping,
+					EditorState.tabSize.of(2),
+					EditorView.updateListener.of((update: ViewUpdate) => {
+						if (update.docChanged) {
+							// Auto-format on blur could be added here if needed
+						}
+					}),
+				],
+			});
+
+			const editor = new EditorView({
+				state: startState,
+				parent: editorContainer,
+			});
+
+			state.editor = editor;
+		}
+
+		private destroyEditor(state: ConnectionState): void {
+			if (state.editor) {
+				state.editor.destroy();
+				state.editor = null;
+			}
+		}
+
+		updateEditorTheme(state: ConnectionState): void {
+			if (!state.editor) return;
+			
+			const isDark = document.documentElement.classList.contains('dark');
+			const newTheme = EditorView.theme({
+				'&': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 17.5%)' : '#ffffff',
+					color: isDark ? 'hsl(210, 40%, 98%)' : '#222222',
+				},
+				'.cm-content': {
+					caretColor: 'hsl(217.2, 91%, 60%)',
+				},
+				'.cm-gutters': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 20%)' : '#f8f9fa',
+				},
+				'.cm-lineNumbers .cm-gutterElement': {
+					color: isDark ? 'hsl(215, 20.2%, 65.1%)' : '#6b7280',
+				},
+				'.cm-cursor': {
+					borderLeftColor: 'hsl(217.2, 91%, 60%)',
+				},
+				'.cm-selectionBackground': {
+					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 25.5%)' : '#e5e7eb',
+				},
+			});
+			
+			// Update theme by recreating the editor state
+			const currentDoc = state.editor.state.doc.toString();
+			const newState = EditorState.create({
+				doc: currentDoc,
+				extensions: [
+					json(),
+					newTheme,
+					EditorView.lineWrapping,
+					EditorState.tabSize.of(2),
+					EditorView.updateListener.of((update: ViewUpdate) => {
+						if (update.docChanged) {
+							// Auto-format on blur could be added here if needed
+						}
+					}),
+				],
+			});
+			
+			state.editor.setState(newState);
+		}
+
 		private renderConnection(state: ConnectionState): void {
 			const container = document.getElementById('connectionsContainer');
 			if (!container) return;
 
 			const connectionDiv = document.createElement('div');
 			connectionDiv.id = `connection-${state.id}`;
-			connectionDiv.className = 'bg-gray-800 rounded-lg p-4 border border-gray-700';
 			connectionDiv.innerHTML = this.getConnectionHTML(state);
 			container.appendChild(connectionDiv);
 
@@ -224,29 +328,30 @@ import Layout from '../layouts/Layout.astro';
 		}
 
 		private getConnectionHTML(state: ConnectionState): string {
-			const statusColor = state.connected ? 'bg-green-500' : 'bg-red-500';
-			const statusText = state.connected ? 'Conectado' : 'Desconectado';
+			const statusBadge = state.connected 
+				? '<span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors bg-green-500/20 text-green-400 border-green-500/50">Conectado</span>'
+				: '<span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors bg-red-500/20 text-red-400 border-red-500/50">Desconectado</span>';
 
 			return `
-				<div class="mb-4">
+				<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6 mb-4">
 					<div class="flex items-center justify-between mb-4">
 						<div class="flex items-center gap-3">
-							<div class="w-3 h-3 rounded-full ${statusColor}"></div>
+							<div class="w-3 h-3 rounded-full ${state.connected ? 'bg-green-500' : 'bg-red-500'}"></div>
 							<h3 class="text-xl font-semibold">${state.url}${state.namespace}</h3>
-							<span class="text-sm text-gray-400">${statusText}</span>
+							${statusBadge}
 						</div>
 						<div class="flex gap-2">
 							${state.connected ? `
-								<button class="disconnect-btn px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm" data-id="${state.id}">
-									Desconectar
+								<button class="disconnect-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-9 px-3 rounded-md" data-id="${state.id}">
+									Disconnect
 								</button>
 							` : `
-								<button class="connect-btn px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm" data-id="${state.id}">
-									Conectar
+								<button class="connect-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-3 rounded-md" data-id="${state.id}">
+									Connect
 								</button>
 							`}
-							<button class="remove-btn px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-sm" data-id="${state.id}">
-								Eliminar
+							<button class="remove-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 rounded-md" data-id="${state.id}">
+								Remove
 							</button>
 						</div>
 					</div>
@@ -255,26 +360,26 @@ import Layout from '../layouts/Layout.astro';
 						<!-- Left Column: Rooms & Event Listeners -->
 						<div class="space-y-4">
 							<!-- Rooms Section -->
-							<div class="bg-gray-700 rounded p-3">
-								<h4 class="font-semibold mb-2">Salas</h4>
+							<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
+								<h4 class="text-lg font-semibold mb-4">Rooms</h4>
 								<div class="flex gap-2 mb-2">
 									<input
 										type="text"
-										class="room-input flex-1 px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm"
-										placeholder="Nombre de sala"
+										class="room-input flex-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+										placeholder="Room name"
 										data-id="${state.id}"
 									/>
-									<button class="join-room-btn px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm" data-id="${state.id}">
-										Unirse
+									<button class="join-room-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-3" data-id="${state.id}">
+										Join
 									</button>
 								</div>
-								<div class="rooms-list" data-id="${state.id}">
-									${state.rooms.length === 0 ? '<p class="text-sm text-gray-400">No hay salas unidas</p>' : ''}
+								<div class="rooms-list space-y-2" data-id="${state.id}">
+									${state.rooms.length === 0 ? '<p class="text-sm text-muted-foreground">No rooms joined</p>' : ''}
 									${state.rooms.map((room) => `
-										<div class="flex items-center justify-between bg-gray-600 rounded p-2 mb-1">
-											<span class="text-sm">${room}</span>
-											<button class="leave-room-btn px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs" data-id="${state.id}" data-room="${room}">
-												Salir
+										<div class="flex items-center justify-between bg-muted rounded-md p-2">
+											<span class="text-sm font-medium">${room}</span>
+											<button class="leave-room-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-8 rounded-md px-2 text-xs" data-id="${state.id}" data-room="${room}">
+												Leave
 											</button>
 										</div>
 									`).join('')}
@@ -282,26 +387,26 @@ import Layout from '../layouts/Layout.astro';
 							</div>
 
 							<!-- Event Listeners Section -->
-							<div class="bg-gray-700 rounded p-3">
-								<h4 class="font-semibold mb-2">Escuchar Eventos</h4>
+							<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
+								<h4 class="text-lg font-semibold mb-4">Listen to Events</h4>
 								<div class="flex gap-2 mb-2">
 									<input
 										type="text"
-										class="listener-input flex-1 px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm"
-										placeholder="Nombre del evento"
+										class="listener-input flex-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+										placeholder="Event name"
 										data-id="${state.id}"
 									/>
-									<button class="add-listener-btn px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm" data-id="${state.id}">
-										Agregar
+									<button class="add-listener-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-3" data-id="${state.id}">
+										Add
 									</button>
 								</div>
-								<div class="listeners-list" data-id="${state.id}">
-									${state.eventListeners.size === 0 ? '<p class="text-sm text-gray-400">No hay listeners activos</p>' : ''}
+								<div class="listeners-list space-y-2" data-id="${state.id}">
+									${state.eventListeners.size === 0 ? '<p class="text-sm text-muted-foreground">No active listeners</p>' : ''}
 									${Array.from(state.eventListeners).map((eventName) => `
-										<div class="flex items-center justify-between bg-gray-600 rounded p-2 mb-1">
-											<span class="text-sm font-mono">${eventName}</span>
-											<button class="remove-listener-btn px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs" data-id="${state.id}" data-event="${eventName}">
-												Quitar
+										<div class="flex items-center justify-between bg-muted rounded-md p-2">
+											<code class="text-sm font-mono">${eventName}</code>
+											<button class="remove-listener-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-destructive text-destructive-foreground hover:bg-destructive/90 h-8 rounded-md px-2 text-xs" data-id="${state.id}" data-event="${eventName}">
+												Remove
 											</button>
 										</div>
 									`).join('')}
@@ -309,49 +414,52 @@ import Layout from '../layouts/Layout.astro';
 							</div>
 
 							<!-- Send Event Section -->
-							<div class="bg-gray-700 rounded p-3">
-								<h4 class="font-semibold mb-2">Enviar Evento</h4>
+							<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
+								<h4 class="text-lg font-semibold mb-4">Send Event</h4>
 								<input
 									type="text"
-									class="event-name-input w-full px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm mb-2"
-									placeholder="Nombre del evento"
+									class="event-name-input w-full mb-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+									placeholder="Event name"
 									data-id="${state.id}"
 								/>
-								<textarea
-									class="event-data-input w-full px-2 py-1 bg-gray-600 rounded border border-gray-500 text-sm font-mono text-xs"
-									rows="4"
-									placeholder='Datos JSON (ej: {"message": "Hello"})'
+								<div
+									class="event-data-editor w-full border rounded-md mb-2 overflow-hidden bg-background"
 									data-id="${state.id}"
-								></textarea>
-								<button class="send-event-btn w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm" data-id="${state.id}">
-									Enviar
+									style="min-height: 100px;"
+								></div>
+								<button class="send-event-btn w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2" data-id="${state.id}">
+									Send
 								</button>
 							</div>
 						</div>
 
 						<!-- Right Column: Event Log -->
-						<div class="bg-gray-700 rounded p-3">
-							<div class="flex items-center justify-between mb-2">
-								<h4 class="font-semibold">Log de Eventos</h4>
-								<button class="clear-log-btn px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs" data-id="${state.id}">
-									Limpiar
+						<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
+							<div class="flex items-center justify-between mb-4">
+								<h4 class="text-lg font-semibold">Event Log</h4>
+								<button class="clear-log-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 rounded-md px-2 text-xs" data-id="${state.id}">
+									Clear
 								</button>
 							</div>
-							<div class="event-log bg-gray-900 rounded p-2 h-96 overflow-y-auto font-mono text-xs" data-id="${state.id}">
-								${state.eventLog.length === 0 ? '<p class="text-gray-500">No hay eventos aún</p>' : ''}
-								${state.eventLog.map((log) => {
-									const typeColor = log.type === 'sent' ? 'text-blue-400' : log.type === 'received' ? 'text-green-400' : 'text-yellow-400';
-									return `
-										<div class="mb-2 border-l-2 ${log.type === 'sent' ? 'border-blue-500' : log.type === 'received' ? 'border-green-500' : 'border-yellow-500'} pl-2">
-											<div class="flex items-center gap-2 mb-1">
-												<span class="text-gray-500">${log.timestamp}</span>
-												<span class="${typeColor} font-semibold">[${log.type.toUpperCase()}]</span>
-												<span class="text-gray-300">${log.event}</span>
-											</div>
-											<pre class="text-gray-400 whitespace-pre-wrap break-words">${JSON.stringify(log.data, null, 2)}</pre>
-										</div>
-									`;
-								}).join('')}
+							<div class="relative overflow-hidden rounded-md border bg-background h-96">
+								<div class="h-full w-full rounded-[inherit] overflow-y-scroll p-4">
+									<div class="event-log space-y-2" data-id="${state.id}">
+										${state.eventLog.length === 0 ? '<p class="text-sm text-muted-foreground">No events yet</p>' : ''}
+										${state.eventLog.map((log) => {
+											const typeColor = log.type === 'sent' ? 'text-blue-400 border-blue-500' : log.type === 'received' ? 'text-green-400 border-green-500' : 'text-yellow-400 border-yellow-500';
+											return `
+												<div class="border-l-2 pl-2 ${typeColor}">
+													<div class="flex items-center gap-2 mb-1">
+														<span class="text-xs text-muted-foreground">${log.timestamp}</span>
+														<span class="text-xs font-semibold uppercase">${log.type}</span>
+														<span class="text-sm font-medium">${log.event}</span>
+													</div>
+													<pre class="text-xs whitespace-pre-wrap break-words text-muted-foreground">${JSON.stringify(log.data, null, 2)}</pre>
+												</div>
+											`;
+										}).join('')}
+									</div>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -363,6 +471,7 @@ import Layout from '../layouts/Layout.astro';
 			const element = document.getElementById(`connection-${state.id}`);
 			if (!element) return;
 
+			this.destroyEditor(state);
 			element.innerHTML = this.getConnectionHTML(state);
 			this.attachEventListeners(state);
 		}
@@ -374,18 +483,17 @@ import Layout from '../layouts/Layout.astro';
 			const lastLog = state.eventLog[state.eventLog.length - 1];
 			if (!lastLog) return;
 
-			const typeColor = lastLog.type === 'sent' ? 'text-blue-400' : lastLog.type === 'received' ? 'text-green-400' : 'text-yellow-400';
-			const borderColor = lastLog.type === 'sent' ? 'border-blue-500' : lastLog.type === 'received' ? 'border-green-500' : 'border-yellow-500';
+			const typeColor = lastLog.type === 'sent' ? 'text-blue-400 border-blue-500' : lastLog.type === 'received' ? 'text-green-400 border-green-500' : 'text-yellow-400 border-yellow-500';
 
 			const logEntry = document.createElement('div');
-			logEntry.className = `mb-2 border-l-2 ${borderColor} pl-2`;
+			logEntry.className = `border-l-2 pl-2 ${typeColor}`;
 			logEntry.innerHTML = `
 				<div class="flex items-center gap-2 mb-1">
-					<span class="text-gray-500">${lastLog.timestamp}</span>
-					<span class="${typeColor} font-semibold">[${lastLog.type.toUpperCase()}]</span>
-					<span class="text-gray-300">${lastLog.event}</span>
+					<span class="text-xs text-muted-foreground">${lastLog.timestamp}</span>
+					<span class="text-xs font-semibold uppercase">${lastLog.type}</span>
+					<span class="text-sm font-medium">${lastLog.event}</span>
 				</div>
-				<pre class="text-gray-400 whitespace-pre-wrap break-words">${JSON.stringify(lastLog.data, null, 2)}</pre>
+				<pre class="text-xs whitespace-pre-wrap break-words text-muted-foreground">${JSON.stringify(lastLog.data, null, 2)}</pre>
 			`;
 
 			logElement.appendChild(logEntry);
@@ -472,34 +580,42 @@ import Layout from '../layouts/Layout.astro';
 				});
 			});
 
+			// Initialize editor
+			this.initializeEditor(state);
+
 			// Send event
 			const sendEventBtn = document.querySelector(`.send-event-btn[data-id="${id}"]`);
 			const eventNameInput = document.querySelector(`.event-name-input[data-id="${id}"]`) as HTMLInputElement;
-			const eventDataInput = document.querySelector(`.event-data-input[data-id="${id}"]`) as HTMLTextAreaElement;
 			sendEventBtn?.addEventListener('click', () => {
 				const eventName = eventNameInput?.value.trim();
 				if (!eventName) return;
 
 				let data: unknown = {};
-				if (eventDataInput?.value.trim()) {
+				const editorContent = state.editor?.state.doc.toString().trim();
+				if (editorContent) {
 					try {
-						data = JSON.parse(eventDataInput.value);
+						data = JSON.parse(editorContent);
 					} catch (error) {
-						alert('Error: JSON inválido');
+						alert('Error: Invalid JSON');
 						return;
 					}
 				}
 
 				this.sendEvent(id, eventName, data);
 				if (eventNameInput) eventNameInput.value = '';
-				if (eventDataInput) eventDataInput.value = '';
+				if (state.editor) {
+					const transaction = state.editor.state.update({
+						changes: { from: 0, to: state.editor.state.doc.length, insert: '' },
+					});
+					state.editor.dispatch(transaction);
+				}
 			});
 
 			// Clear log
 			document.querySelector(`.clear-log-btn[data-id="${id}"]`)?.addEventListener('click', () => {
 				state.eventLog = [];
 				const logElement = document.querySelector(`.event-log[data-id="${id}"]`);
-				if (logElement) logElement.innerHTML = '<p class="text-gray-500">No hay eventos aún</p>';
+				if (logElement) logElement.innerHTML = '<p class="text-gray-500">No events yet</p>';
 			});
 		}
 	}
@@ -516,7 +632,7 @@ import Layout from '../layouts/Layout.astro';
 		const namespace = namespaceInput?.value.trim() || '/';
 
 		if (!url) {
-			alert('Por favor ingresa una URL');
+			alert('Please enter a URL');
 			return;
 		}
 
@@ -534,5 +650,17 @@ import Layout from '../layouts/Layout.astro';
 		if (e.key === 'Enter') {
 			document.getElementById('connectBtn')?.click();
 		}
+	});
+
+	// Listen for theme changes and update editors
+	const themeObserver = new MutationObserver(() => {
+		// Access connections through a public method
+		(manager as any).connections.forEach((state: ConnectionState) => {
+			manager.updateEditorTheme(state);
+		});
+	});
+	themeObserver.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ['class'],
 	});
 </script>

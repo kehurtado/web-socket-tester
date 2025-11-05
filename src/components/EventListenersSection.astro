@@ -1,0 +1,52 @@
+---
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface Props {
+  connectionId: string;
+  listeners: string[];
+}
+
+const { connectionId, listeners } = Astro.props;
+---
+
+<Card>
+	<CardHeader>
+		<CardTitle class="text-lg">Listen to Events</CardTitle>
+	</CardHeader>
+	<CardContent>
+		<div class="flex gap-2 mb-2">
+			<Input
+				type="text"
+				class="listener-input flex-1 bg-background"
+				placeholder="Event name"
+				data-id={connectionId}
+			/>
+			<Button class="add-listener-btn" data-id={connectionId} size="sm">
+				Add
+			</Button>
+		</div>
+		<div class="listeners-list space-y-2" data-id={connectionId}>
+			{listeners.length === 0 ? (
+				<p class="text-sm text-muted-foreground">No active listeners</p>
+			) : (
+				listeners.map((eventName) => (
+					<div class="flex items-center justify-between bg-muted rounded-md p-2">
+						<code class="text-sm font-mono">{eventName}</code>
+						<Button
+							class="remove-listener-btn"
+							data-id={connectionId}
+							data-event={eventName}
+							variant="destructive"
+							size="sm"
+						>
+							Remove
+						</Button>
+					</div>
+				))
+			)}
+		</div>
+	</CardContent>
+</Card>
+

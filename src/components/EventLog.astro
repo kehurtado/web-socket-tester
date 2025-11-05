@@ -1,0 +1,59 @@
+---
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface Props {
+  connectionId: string;
+  logs: Array<{ timestamp: string; type: 'sent' | 'received' | 'system'; event: string; data: unknown }>;
+}
+
+const { connectionId, logs } = Astro.props;
+---
+
+<Card>
+	<CardHeader>
+		<div class="flex items-center justify-between">
+			<CardTitle class="text-lg">Event Log</CardTitle>
+			<Button
+				class="clear-log-btn"
+				data-id={connectionId}
+				variant="outline"
+				size="sm"
+			>
+				Clear
+			</Button>
+		</div>
+	</CardHeader>
+	<CardContent>
+		<ScrollArea class="h-96 w-full rounded-md border bg-background p-4">
+			<div class="event-log space-y-2" data-id={connectionId}>
+				{logs.length === 0 ? (
+					<p class="text-sm text-muted-foreground">No events yet</p>
+				) : (
+					logs.map((log) => {
+						const typeColor =
+							log.type === 'sent'
+								? 'text-blue-400 border-blue-500'
+								: log.type === 'received'
+									? 'text-green-400 border-green-500'
+									: 'text-yellow-400 border-yellow-500';
+						return (
+							<div class={`border-l-2 pl-2 ${typeColor}`}>
+								<div class="flex items-center gap-2 mb-1">
+									<span class="text-xs text-muted-foreground">{log.timestamp}</span>
+									<span class="text-xs font-semibold uppercase">{log.type}</span>
+									<span class="text-sm font-medium">{log.event}</span>
+								</div>
+								<pre class="text-xs whitespace-pre-wrap wrap-break-word text-muted-foreground">
+									{JSON.stringify(log.data, null, 2)}
+								</pre>
+							</div>
+						);
+					})
+				)}
+			</div>
+		</ScrollArea>
+	</CardContent>
+</Card>
+

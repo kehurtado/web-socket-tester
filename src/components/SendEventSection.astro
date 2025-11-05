@@ -1,0 +1,34 @@
+---
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface Props {
+  connectionId: string;
+}
+
+const { connectionId } = Astro.props;
+---
+
+<Card>
+	<CardHeader>
+		<CardTitle class="text-lg">Send Event</CardTitle>
+	</CardHeader>
+	<CardContent>
+		<Input
+			type="text"
+			class="event-name-input w-full mb-2 bg-background"
+			placeholder="Event name"
+			data-id={connectionId}
+		/>
+		<div
+			class="event-data-editor w-full border rounded-md mb-2 overflow-hidden bg-background"
+			data-id={connectionId}
+			style="min-height: 100px;"
+		></div>
+		<Button class="send-event-btn w-full" data-id={connectionId}>
+			Send
+		</Button>
+	</CardContent>
+</Card>
+

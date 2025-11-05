@@ -9,9 +9,20 @@
     "astro": "astro"
   },
   "dependencies": {
+    "@astrojs/react": "^3.6.1",
+    "@codemirror/lang-json": "^6.0.1",
+    "@codemirror/state": "^6.2.1",
+    "@codemirror/view": "^6.21.3",
     "@tailwindcss/vite": "^4.1.16",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "astro": "^5.15.3",
+    "clsx": "^2.1.1",
+    "codemirror": "^6.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "socket.io-client": "^4.7.5",
+    "tailwind-merge": "^2.5.4",
     "tailwindcss": "^4.1.16"
   }
 }

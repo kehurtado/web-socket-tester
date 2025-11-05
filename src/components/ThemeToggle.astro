@@ -1,0 +1,77 @@
+---
+---
+
+<div class="flex items-center gap-3">
+  <span class="text-sm font-medium">Modo</span>
+  <label class="relative inline-flex items-center cursor-pointer">
+    <input
+      type="checkbox"
+      id="theme-toggle"
+      class="sr-only"
+    />
+    <div id="theme-toggle-slider" class="w-11 h-6 bg-gray-300 rounded-full relative transition-colors duration-200">
+      <div id="theme-toggle-thumb" class="absolute top-[2px] left-[2px] bg-white w-5 h-5 rounded-full shadow-sm transition-transform duration-200"></div>
+    </div>
+    <span class="ml-3 text-sm font-medium">
+      <span id="theme-label">Claro</span>
+    </span>
+  </label>
+</div>
+
+<script>
+  (function() {
+    const themeToggle = document.getElementById('theme-toggle') as HTMLInputElement;
+    const themeLabel = document.getElementById('theme-label');
+    const themeSlider = document.getElementById('theme-toggle-slider');
+    const themeThumb = document.getElementById('theme-toggle-thumb');
+    const html = document.documentElement;
+
+    function updateTheme(dark: boolean) {
+      if (dark) {
+        html.classList.add('dark');
+        if (themeToggle) themeToggle.checked = true;
+        if (themeLabel) themeLabel.textContent = 'Oscuro';
+        if (themeSlider) {
+          themeSlider.style.backgroundColor = 'hsl(var(--primary))';
+        }
+        if (themeThumb) {
+          themeThumb.style.transform = 'translateX(20px)';
+        }
+      } else {
+        html.classList.remove('dark');
+        if (themeToggle) themeToggle.checked = false;
+        if (themeLabel) themeLabel.textContent = 'Claro';
+        if (themeSlider) {
+          themeSlider.style.backgroundColor = '#d1d5db';
+        }
+        if (themeThumb) {
+          themeThumb.style.transform = 'translateX(0)';
+        }
+      }
+    }
+
+    // Load saved theme or default to system preference
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
+
+    updateTheme(isDark);
+
+    // Toggle theme
+    if (themeToggle) {
+      themeToggle.addEventListener('change', (e) => {
+        const checked = (e.target as HTMLInputElement).checked;
+        updateTheme(checked);
+        localStorage.setItem('theme', checked ? 'dark' : 'light');
+      });
+    }
+
+    // Listen for system theme changes (only if no saved preference)
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (!localStorage.getItem('theme')) {
+        updateTheme(e.matches);
+      }
+    });
+  })();
+</script>
+

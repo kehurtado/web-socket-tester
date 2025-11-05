@@ -1,0 +1,52 @@
+---
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+interface Props {
+  connectionId: string;
+  rooms: string[];
+}
+
+const { connectionId, rooms } = Astro.props;
+---
+
+<Card>
+	<CardHeader>
+		<CardTitle class="text-lg">Rooms</CardTitle>
+	</CardHeader>
+	<CardContent>
+		<div class="flex gap-2 mb-2">
+			<Input
+				type="text"
+				class="room-input flex-1 bg-background"
+				placeholder="Room name"
+				data-id={connectionId}
+			/>
+			<Button class="join-room-btn" data-id={connectionId} size="sm">
+				Join
+			</Button>
+		</div>
+		<div class="rooms-list space-y-2" data-id={connectionId}>
+			{rooms.length === 0 ? (
+				<p class="text-sm text-muted-foreground">No rooms joined</p>
+			) : (
+				rooms.map((room) => (
+					<div class="flex items-center justify-between bg-muted rounded-md p-2">
+						<span class="text-sm font-medium">{room}</span>
+						<Button
+							class="leave-room-btn"
+							data-id={connectionId}
+							data-room={room}
+							variant="destructive"
+							size="sm"
+						>
+							Leave
+						</Button>
+					</div>
+				))
+			)}
+		</div>
+	</CardContent>
+</Card>
+

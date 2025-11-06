@@ -28,8 +28,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 	import { io } from 'socket.io-client';
 	import { EditorView, ViewUpdate } from '@codemirror/view';
 	import { EditorState } from '@codemirror/state';
-	import { json } from '@codemirror/lang-json';
+	import { json, jsonParseLinter } from '@codemirror/lang-json';
+	import { linter, lintGutter } from '@codemirror/lint';
+	import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
+	import { keymap } from '@codemirror/view';
 	import { toast } from 'sonner';
+	import { useSocketStore } from '../store/socketStore';
 
 	interface ConnectionState {
 		id: string;
@@ -45,8 +49,8 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 	}
 
 	class SocketManager {
-		private connections: Map<string, ConnectionState> = new Map();
-		private connectionCounter = 0;
+		connections: Map<string, ConnectionState> = new Map();
+		connectionCounter = 0;
 
 		createConnection(url: string, namespace: string, queryParams: Record<string, string> = {}): string {
 			const id = `conn-${++this.connectionCounter}`;
@@ -67,6 +71,17 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			};
 
 			this.connections.set(id, state);
+			
+			// Save to Zustand store
+			useSocketStore.getState().addConnection({
+				id,
+				url,
+				namespace: namespacePath,
+				queryParams,
+				rooms: [],
+				eventListeners: [],
+			});
+			
 			this.renderConnection(state);
 			return id;
 		}
@@ -93,6 +108,13 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 					state.connected = true;
 					state.socket = socket;
 					this.addLog(id, 'system', 'connected', {});
+					
+					// Re-join persisted rooms
+					state.rooms.forEach((room) => {
+						socket.emit('join', room);
+						this.addLog(id, 'sent', 'join', { room });
+					});
+					
 					this.updateConnectionUI(state);
 				});
 
@@ -138,6 +160,10 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			}
 			this.disconnect(id);
 			this.connections.delete(id);
+			
+			// Remove from store
+			useSocketStore.getState().removeConnection(id);
+			
 			const element = document.getElementById(`connection-${id}`);
 			if (element) element.remove();
 		}
@@ -151,6 +177,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			state.socket.emit('join', room);
 			state.rooms.push(room);
 			this.addLog(id, 'sent', 'join', { room });
+			
+			// Update store
+			useSocketStore.getState().updateConnection(id, {
+				rooms: [...state.rooms],
+			});
+			
 			this.updateConnectionUI(state);
 		}
 
@@ -161,6 +193,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			state.socket.emit('leave', room);
 			state.rooms = state.rooms.filter((r) => r !== room);
 			this.addLog(id, 'sent', 'leave', { room });
+			
+			// Update store
+			useSocketStore.getState().updateConnection(id, {
+				rooms: [...state.rooms],
+			});
+			
 			this.updateConnectionUI(state);
 		}
 
@@ -176,6 +214,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 					this.addLog(id, 'received', eventName, data);
 				});
 			}
+			
+			// Update store
+			useSocketStore.getState().updateConnection(id, {
+				eventListeners: Array.from(state.eventListeners),
+			});
+			
 			this.updateConnectionUI(state);
 		}
 
@@ -187,6 +231,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			if (state.socket && state.connected) {
 				state.socket.off(eventName);
 			}
+			
+			// Update store
+			useSocketStore.getState().updateConnection(id, {
+				eventListeners: Array.from(state.eventListeners),
+			});
+			
 			this.updateConnectionUI(state);
 		}
 
@@ -213,6 +263,53 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			this.updateLogUI(state);
 		}
 
+		private formatJSON(editor: EditorView): boolean {
+			const content = editor.state.doc.toString().trim();
+			if (!content) return false;
+
+			try {
+				const parsed = JSON.parse(content);
+				const formatted = JSON.stringify(parsed, null, 2);
+				
+				const transaction = editor.state.update({
+					changes: {
+						from: 0,
+						to: editor.state.doc.length,
+						insert: formatted,
+					},
+				});
+				
+				editor.dispatch(transaction);
+				return true;
+			} catch (error) {
+				showToast('Format Error', `Invalid JSON: ${(error as Error).message}`);
+				return false;
+			}
+		}
+
+		private updateValidationStatus(state: ConnectionState): void {
+			const statusElement = document.querySelector(`.json-validation-status[data-id="${state.id}"]`) as HTMLElement;
+			if (!statusElement || !state.editor) return;
+
+			const content = state.editor.state.doc.toString().trim();
+			
+			if (!content) {
+				statusElement.style.display = 'none';
+				return;
+			}
+
+			try {
+				JSON.parse(content);
+				statusElement.style.display = 'block';
+				statusElement.textContent = '✓ Valid JSON';
+				statusElement.className = 'json-validation-status text-xs mt-1 px-2 text-green-600 dark:text-green-400';
+			} catch (error) {
+				statusElement.style.display = 'block';
+				statusElement.textContent = `✗ Invalid JSON: ${(error as Error).message}`;
+				statusElement.className = 'json-validation-status text-xs mt-1 px-2 text-red-600 dark:text-red-400';
+			}
+		}
+
 		private initializeEditor(state: ConnectionState): void {
 			const editorContainer = document.querySelector(`.event-data-editor[data-id="${state.id}"]`) as HTMLElement;
 			if (!editorContainer || state.editor) return;
@@ -234,6 +331,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				},
 				'.cm-focused': {
 					outline: 'none',
+					borderColor: isDark ? 'hsl(217.2, 91%, 60%)' : 'hsl(217.2, 91%, 60%)',
 				},
 				'.cm-gutters': {
 					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 20%)' : '#f8f9fa',
@@ -249,18 +347,45 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				'.cm-selectionBackground': {
 					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 25.5%)' : '#e5e7eb',
 				},
+				'.cm-lintRange-error': {
+					backgroundImage: 'none',
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)',
+					borderBottom: `2px solid ${isDark ? 'rgb(239, 68, 68)' : 'rgb(220, 38, 38)'}`,
+				},
+				'.cm-lintRange-error.cm-lintRange-active': {
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)',
+				},
+				'.cm-lintGutter': {
+					width: '16px',
+				},
+				'.cm-lintGutter-error': {
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)',
+				},
 			});
+
+			// Format JSON function with keyboard shortcut
+			const formatKeybinding = {
+				key: 'Mod-Shift-f',
+				run: (view: EditorView) => {
+					return this.formatJSON(view);
+				},
+			};
 
 			const startState = EditorState.create({
 				doc: '',
 				extensions: [
 					json(),
+					linter(jsonParseLinter()),
+					lintGutter(),
+					autocompletion(),
 					darkTheme,
 					EditorView.lineWrapping,
 					EditorState.tabSize.of(2),
+					keymap.of([formatKeybinding, ...completionKeymap]),
 					EditorView.updateListener.of((update: ViewUpdate) => {
 						if (update.docChanged) {
-							// Auto-format on blur could be added here if needed
+							// Update validation status
+							this.updateValidationStatus(state);
 						}
 					}),
 				],
@@ -272,6 +397,9 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			});
 
 			state.editor = editor;
+			
+			// Initial validation status
+			this.updateValidationStatus(state);
 		}
 
 		private destroyEditor(state: ConnectionState): void {
@@ -289,15 +417,27 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				'&': {
 					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 17.5%)' : '#ffffff',
 					color: isDark ? 'hsl(210, 40%, 98%)' : '#222222',
+					height: '100%',
+					borderRadius: '0.375rem',
 				},
 				'.cm-content': {
+					padding: '12px',
+					minHeight: '100px',
+					fontSize: '14px',
+					fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 					caretColor: 'hsl(217.2, 91%, 60%)',
+				},
+				'.cm-focused': {
+					outline: 'none',
+					borderColor: isDark ? 'hsl(217.2, 91%, 60%)' : 'hsl(217.2, 91%, 60%)',
 				},
 				'.cm-gutters': {
 					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 20%)' : '#f8f9fa',
+					border: 'none',
 				},
 				'.cm-lineNumbers .cm-gutterElement': {
 					color: isDark ? 'hsl(215, 20.2%, 65.1%)' : '#6b7280',
+					padding: '0 8px',
 				},
 				'.cm-cursor': {
 					borderLeftColor: 'hsl(217.2, 91%, 60%)',
@@ -305,7 +445,29 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				'.cm-selectionBackground': {
 					backgroundColor: isDark ? 'hsl(217.2, 32.6%, 25.5%)' : '#e5e7eb',
 				},
+				'.cm-lintRange-error': {
+					backgroundImage: 'none',
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)',
+					borderBottom: `2px solid ${isDark ? 'rgb(239, 68, 68)' : 'rgb(220, 38, 38)'}`,
+				},
+				'.cm-lintRange-error.cm-lintRange-active': {
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)',
+				},
+				'.cm-lintGutter': {
+					width: '16px',
+				},
+				'.cm-lintGutter-error': {
+					backgroundColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(239, 68, 68, 0.2)',
+				},
 			});
+			
+			// Format JSON function with keyboard shortcut
+			const formatKeybinding = {
+				key: 'Mod-Shift-f',
+				run: (view: EditorView) => {
+					return this.formatJSON(view);
+				},
+			};
 			
 			// Update theme by recreating the editor state
 			const currentDoc = state.editor.state.doc.toString();
@@ -313,21 +475,26 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 				doc: currentDoc,
 				extensions: [
 					json(),
+					linter(jsonParseLinter()),
+					lintGutter(),
+					autocompletion(),
 					newTheme,
 					EditorView.lineWrapping,
 					EditorState.tabSize.of(2),
+					keymap.of([formatKeybinding, ...completionKeymap]),
 					EditorView.updateListener.of((update: ViewUpdate) => {
 						if (update.docChanged) {
-							// Auto-format on blur could be added here if needed
+							this.updateValidationStatus(state);
 						}
 					}),
 				],
 			});
 			
 			state.editor.setState(newState);
+			this.updateValidationStatus(state);
 		}
 
-		private renderConnection(state: ConnectionState): void {
+		renderConnection(state: ConnectionState): void {
 			const container = document.getElementById('connectionsContainer');
 			if (!container) return;
 
@@ -427,7 +594,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 
 							<!-- Send Event Section -->
 							<div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
-								<h4 class="text-lg font-semibold mb-4">Send Event</h4>
+								<div class="flex items-center justify-between mb-4">
+									<h4 class="text-lg font-semibold">Send Event</h4>
+									<button class="format-json-btn inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-8 px-3 text-xs" data-id="${state.id}" title="Format JSON (Ctrl/Cmd + Shift + F)">
+										Format JSON
+									</button>
+								</div>
 								<input
 									type="text"
 									class="event-name-input w-full mb-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -435,10 +607,16 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 									data-id="${state.id}"
 								/>
 								<div
-									class="event-data-editor w-full border rounded-md mb-2 overflow-hidden bg-background"
+									class="event-data-editor-wrapper w-full mb-2"
 									data-id="${state.id}"
-									style="min-height: 100px;"
-								></div>
+								>
+									<div
+										class="event-data-editor w-full border rounded-md overflow-hidden bg-background"
+										data-id="${state.id}"
+										style="min-height: 100px;"
+									></div>
+									<div class="json-validation-status text-xs mt-1 px-2" data-id="${state.id}" style="display: none;"></div>
+								</div>
 								<button class="send-event-btn w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2" data-id="${state.id}">
 									Send
 								</button>
@@ -595,6 +773,14 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			// Initialize editor
 			this.initializeEditor(state);
 
+			// Format JSON button
+			document.querySelector(`.format-json-btn[data-id="${id}"]`)?.addEventListener('click', () => {
+				if (state.editor) {
+					this.formatJSON(state.editor);
+					this.updateValidationStatus(state);
+				}
+			});
+
 			// Send event
 			const sendEventBtn = document.querySelector(`.send-event-btn[data-id="${id}"]`);
 			const eventNameInput = document.querySelector(`.event-name-input[data-id="${id}"]`) as HTMLInputElement;
@@ -620,6 +806,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 						changes: { from: 0, to: state.editor.state.doc.length, insert: '' },
 					});
 					state.editor.dispatch(transaction);
+					this.updateValidationStatus(state);
 				}
 			});
 
@@ -643,7 +830,7 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 		}
 	}
 
-	// Connect button handler
+		// Connect button handler
 	document.getElementById('connectBtn')?.addEventListener('click', () => {
 		const urlInput = document.getElementById('serverUrl') as HTMLInputElement;
 		const namespaceInput = document.getElementById('namespace') as HTMLInputElement;
@@ -656,12 +843,12 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 			return;
 		}
 
-		// Read query parameters from the form
-		const queryParams: Record<string, string> = {};
-		const getQueryParams = (window as { getQueryParams?: () => Record<string, string> }).getQueryParams;
-		if (getQueryParams) {
-			Object.assign(queryParams, getQueryParams());
-		}
+		// Read query parameters from Zustand store
+		const formData = useSocketStore.getState().formData;
+		const queryParams = { ...formData.queryParams };
+
+		// Update form data in store
+		useSocketStore.getState().updateFormData({ serverUrl: url, namespace });
 
 		const id = manager.createConnection(url, namespace, queryParams);
 		manager.connect(id);
@@ -690,4 +877,49 @@ import ThemeToggle from '../components/ThemeToggle.astro';
 		attributes: true,
 		attributeFilter: ['class'],
 	});
+
+	// Restore persisted connections on page load
+	function restoreConnections() {
+		const persistedConnections = useSocketStore.getState().connections;
+		
+		persistedConnections.forEach((conn) => {
+			// Create connection state (disconnected)
+			const state: ConnectionState = {
+				id: conn.id,
+				socket: null,
+				url: conn.url,
+				namespace: conn.namespace,
+				queryParams: conn.queryParams,
+				connected: false,
+				rooms: conn.rooms || [],
+				eventListeners: new Set(conn.eventListeners || []),
+				eventLog: [],
+				editor: null,
+			};
+
+			manager.connections.set(conn.id, state);
+			manager.renderConnection(state);
+			
+			// Restore event listeners if socket gets connected
+			if (state.eventListeners.size > 0) {
+				// The listeners will be attached when user connects
+			}
+		});
+		
+		// Update connection counter to avoid ID conflicts
+		if (persistedConnections.length > 0) {
+			const maxId = Math.max(...persistedConnections.map(c => {
+				const match = c.id.match(/conn-(\d+)/);
+				return match ? parseInt(match[1], 10) : 0;
+			}));
+			manager.connectionCounter = maxId;
+		}
+	}
+
+	// Restore on DOM ready
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', restoreConnections);
+	} else {
+		restoreConnections();
+	}
 </script>

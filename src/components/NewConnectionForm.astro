@@ -64,9 +64,9 @@ import { Input } from "@/components/ui/input";
 
 <script>
 	import { toast } from 'sonner';
+	import { useSocketStore } from '../store/socketStore';
 	
-	// Manage query parameters
-	const queryParams: Record<string, string> = {};
+	const store = useSocketStore.getState();
 	
 	function showToast(title: string, description: string, variant: 'default' | 'destructive' = 'destructive') {
 		if (variant === 'destructive') {
@@ -94,12 +94,18 @@ import { Input } from "@/components/ui/input";
 			return;
 		}
 		
+		// Get current query params from store
+		const currentParams = useSocketStore.getState().formData.queryParams;
+		
 		// Check if key already exists
-		if (queryParams.hasOwnProperty(key)) {
+		if (currentParams.hasOwnProperty(key)) {
 			showToast('Warning', `Key "${key}" already exists. It will be updated.`, 'default');
 		}
 		
-		queryParams[key] = value || '';
+		// Update store
+		useSocketStore.getState().updateFormData({
+			queryParams: { ...currentParams, [key]: value || '' },
+		});
 		
 		// Clear inputs
 		keyInput.value = '';
@@ -110,7 +116,10 @@ import { Input } from "@/components/ui/input";
 	}
 	
 	function removeQueryParam(key: string) {
-		delete queryParams[key];
+		const currentParams = useSocketStore.getState().formData.queryParams;
+		const newParams = { ...currentParams };
+		delete newParams[key];
+		useSocketStore.getState().updateFormData({ queryParams: newParams });
 		updateQueryParamsList();
 	}
 	
@@ -118,6 +127,7 @@ import { Input } from "@/components/ui/input";
 		const listContainer = document.getElementById('queryParamsList');
 		if (!listContainer) return;
 		
+		const queryParams = useSocketStore.getState().formData.queryParams;
 		const keys = Object.keys(queryParams);
 		
 		if (keys.length === 0) {
@@ -149,6 +159,29 @@ import { Input } from "@/components/ui/input";
 		});
 	}
 	
+	// Sync input fields with store on load
+	function syncFormFromStore() {
+		const formData = useSocketStore.getState().formData;
+		const urlInput = document.getElementById('serverUrl') as HTMLInputElement;
+		const namespaceInput = document.getElementById('namespace') as HTMLInputElement;
+		
+		if (urlInput && formData.serverUrl) {
+			urlInput.value = formData.serverUrl;
+		}
+		if (namespaceInput && formData.namespace) {
+			namespaceInput.value = formData.namespace;
+		}
+		
+		// Update sync URL and namespace to store when they change
+		urlInput?.addEventListener('input', () => {
+			useSocketStore.getState().updateFormData({ serverUrl: urlInput.value });
+		});
+		
+		namespaceInput?.addEventListener('input', () => {
+			useSocketStore.getState().updateFormData({ namespace: namespaceInput.value });
+		});
+	}
+	
 	// Add button handler
 	document.getElementById('addQueryParamBtn')?.addEventListener('click', addQueryParam);
 	
@@ -166,10 +199,20 @@ import { Input } from "@/components/ui/input";
 		}
 	});
 	
-	// Initialize list
-	updateQueryParamsList();
+	// Initialize list and sync form
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', () => {
+			updateQueryParamsList();
+			syncFormFromStore();
+		});
+	} else {
+		updateQueryParamsList();
+		syncFormFromStore();
+	}
 	
-	// Expose queryParams to global scope so it can be accessed by the connection handler
-	(window as Window & { getQueryParams?: () => Record<string, string> }).getQueryParams = () => ({ ...queryParams });
+	// Subscribe to store changes to update UI
+	useSocketStore.subscribe((state) => {
+		updateQueryParamsList();
+	});
 </script>
 
